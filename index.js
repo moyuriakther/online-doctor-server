@@ -23,6 +23,9 @@ async function run() {
     const bookingCollection = client
       .db(`${process.env.DB_NAME}`)
       .collection("booking");
+    const userCollection = client
+      .db(`${process.env.DB_NAME}`)
+      .collection("users");
 
     app.get("/", async (req, res) => {
       res.send("Welcome To Online Doctor Server");
@@ -34,8 +37,10 @@ async function run() {
       const result = await appointment.toArray();
       res.send(result);
     });
+
+    // its not proper way to query need to learn aggregation, pipeline,
     app.get("/available", async (req, res) => {
-      const date = req.query.date || "Nov 23, 2022";
+      const date = req.query.date;
       // step-1: get all services
       const allAppointments = await appointmentCollection.find().toArray();
       // step-2: get all bookings of that day
@@ -48,12 +53,32 @@ async function run() {
           (b) => b.treatmentName === appointment.name
         );
         // step-5: select slots for the appointment bookings
-        const booked = appointmentBookings.map((book) => book.slot);
-        // step-6: select those slots that are not in booked slots
-        const available = appointment.slots.filter((s) => !booked.includes(s));
-        appointment.available = available;
+        const bookedSlots = appointmentBookings.map((book) => book.slot);
+        // step-6: select those slots that are not in bookedSlots
+        const available = appointment.slots.filter(
+          (slot) => !bookedSlots.includes(slot)
+        );
+        // step-7: make available slot array on appointment
+        appointment.slots = available;
       });
       res.send(allAppointments);
+    });
+    app.put("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const filter = { email: email };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: user,
+      };
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      res.send(result);
+    });
+    app.get("/booking", async (req, res) => {
+      const patientEmail = req.query.patientEmail;
+      const query = { patientEmail: patientEmail };
+      const result = await bookingCollection.find(query).toArray();
+      res.send(result);
     });
     app.post("/booking", async (req, res) => {
       const booking = req.body;
@@ -63,7 +88,6 @@ async function run() {
         date: booking.date,
       };
       const existing = await bookingCollection.findOne(query);
-      console.log(existing);
       if (existing) {
         return res.send({ success: false, booking: existing });
       } else {
