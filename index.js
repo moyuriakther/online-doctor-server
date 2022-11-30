@@ -23,7 +23,8 @@ const verifyJwtToken = (req, res, next) => {
   }
   const token = authorization.split(" ")[1];
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
-    if (error) return res.status(403).send({ message: "Forbidden Access" });
+    if (error)
+      return res.status(403).send({ message: "Forbidden User Access" });
     req.decoded = decoded;
     next();
   });
@@ -78,13 +79,48 @@ async function run() {
       });
       res.send(allAppointments);
     });
+    app.get("/user", verifyJwtToken, async (req, res) => {
+      const query = {};
+      const result = await userCollection.find(query).toArray();
+      res.send(result);
+    });
+    // check admin role
+    app.get("/admin/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({ currentEmail: email });
+      const isAdmin = result?.role === "admin";
+      res.send({ admin: isAdmin });
+    });
+    // set admin role
+    app.put("/user/admin/:email", verifyJwtToken, async (req, res) => {
+      const email = req.params.email;
+      const decode = req.decoded.email;
+      const requester = decode.split("=")[1];
+      const requesterAccount = await userCollection.findOne({
+        currentEmail: requester,
+      });
+      console.log(requesterAccount?.role, "requester account");
+      if (requesterAccount?.role === "admin") {
+        const filter = { currentEmail: email };
+        const updateDoc = {
+          $set: { role: "admin" },
+        };
+        console.log(updateDoc, "update");
+        const result = await userCollection.updateOne(filter, updateDoc);
+        console.log(result, "result");
+        res.send(result);
+      } else {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
+    });
     app.put("/user/:email", async (req, res) => {
       const email = req.params.email;
-      const user = req.body;
-      const filter = { email: email };
+      const currentEmail = email.split("=")[1];
+      const user = req.body.email;
+      const filter = { currentEmail: currentEmail };
       const options = { upsert: true };
       const updateDoc = {
-        $set: user,
+        $set: { user },
       };
       const result = await userCollection.updateOne(filter, updateDoc, options);
       const token = jwt.sign(
