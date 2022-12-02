@@ -51,6 +51,20 @@ async function run() {
       res.send("Welcome To Online Doctor Server");
     });
 
+    const verifyAdmin = async (req, res, next) => {
+      const decode = req.decoded.email;
+      const requester = decode.split("=")[1];
+      const requesterAccount = await userCollection.findOne({
+        currentEmail: requester,
+      });
+      console.log(requesterAccount?.role, "requester account");
+      if (requesterAccount?.role === "admin") {
+        next();
+      } else {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
+    };
+
     app.get("/appointments", async (req, res) => {
       const query = {};
       const appointment = appointmentCollection
@@ -98,27 +112,20 @@ async function run() {
       res.send({ admin: isAdmin });
     });
     // set admin role
-    app.put("/user/admin/:email", verifyJwtToken, async (req, res) => {
-      const email = req.params.email;
-      const decode = req.decoded.email;
-      const requester = decode.split("=")[1];
-      const requesterAccount = await userCollection.findOne({
-        currentEmail: requester,
-      });
-      console.log(requesterAccount?.role, "requester account");
-      if (requesterAccount?.role === "admin") {
+    app.put(
+      "/user/admin/:email",
+      verifyJwtToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
         const filter = { currentEmail: email };
         const updateDoc = {
           $set: { role: "admin" },
         };
-        console.log(updateDoc, "update");
         const result = await userCollection.updateOne(filter, updateDoc);
-        console.log(result, "result");
         res.send(result);
-      } else {
-        return res.status(403).send({ message: "Forbidden Access" });
       }
-    });
+    );
     app.put("/user/:email", async (req, res) => {
       const email = req.params.email;
       const currentEmail = email.split("=")[1];
@@ -163,24 +170,11 @@ async function run() {
         res.send({ success: true, result });
       }
     });
-    app.post("/doctors", async (req, res) => {
+    app.post("/doctors", verifyJwtToken, verifyAdmin, async (req, res) => {
       const doctor = req.body;
-      const query = {
-        name: doctor.name,
-        email: doctor.email,
-        specialty: doctor.specialty,
-        image: doctor.image,
-      };
-      const decoded = req.decoded;
-      console.log("decoded", decoded);
-      const existing = await doctorCollection.findOne(query);
-      if (existing) {
-        return res.send({ success: false, doctor: existing });
-      } else {
-        const result = await doctorCollection.insertOne(doctor);
-        res.send({ success: true, result });
-        console.log(result);
-      }
+      const result = await doctorCollection.insertOne(doctor);
+      res.send(result);
+      console.log(result);
     });
   } finally {
   }
