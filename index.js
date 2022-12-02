@@ -18,6 +18,7 @@ const client = new MongoClient(uri, {
 
 const verifyJwtToken = (req, res, next) => {
   const authorization = req.headers.authorization;
+  console.log(authorization);
   if (!authorization) {
     return res.status(401).send({ message: "UnAuthorized User" });
   }
@@ -42,6 +43,9 @@ async function run() {
     const userCollection = client
       .db(`${process.env.DB_NAME}`)
       .collection("users");
+    const doctorCollection = client
+      .db(`${process.env.DB_NAME}`)
+      .collection("doctors");
 
     app.get("/", async (req, res) => {
       res.send("Welcome To Online Doctor Server");
@@ -49,7 +53,9 @@ async function run() {
 
     app.get("/appointments", async (req, res) => {
       const query = {};
-      const appointment = appointmentCollection.find(query);
+      const appointment = appointmentCollection
+        .find(query)
+        .project({ name: 1 });
       const result = await appointment.toArray();
       res.send(result);
     });
@@ -155,6 +161,25 @@ async function run() {
       } else {
         const result = await bookingCollection.insertOne(booking);
         res.send({ success: true, result });
+      }
+    });
+    app.post("/doctors", async (req, res) => {
+      const doctor = req.body;
+      const query = {
+        name: doctor.name,
+        email: doctor.email,
+        specialty: doctor.specialty,
+        image: doctor.image,
+      };
+      const decoded = req.decoded;
+      console.log("decoded", decoded);
+      const existing = await doctorCollection.findOne(query);
+      if (existing) {
+        return res.send({ success: false, doctor: existing });
+      } else {
+        const result = await doctorCollection.insertOne(doctor);
+        res.send({ success: true, result });
+        console.log(result);
       }
     });
   } finally {
