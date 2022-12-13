@@ -6,9 +6,12 @@ require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const sgTransport = require("nodemailer-sendgrid-transport");
+<<<<<<< HEAD
 const stripe = require("stripe")(
   "sk_test_51MD6lqF708GC2Knr9a2uM6PSQCGfKJCyZjgBQWRUGTePc4HL6KFFM8dJQ8oZCtbDRekQwSXwb7x8PD6wkAA199VX000e99F065"
 );
+=======
+>>>>>>> 73b7f986a6df8f47fe6201cf122978ad9c755358
 
 app.use(cors());
 app.use(express.json());
