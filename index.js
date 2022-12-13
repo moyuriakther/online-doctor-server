@@ -4,11 +4,17 @@ const port = process.env.PORT || 5000;
 const cors = require("cors");
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+const sgTransport = require("nodemailer-sendgrid-transport");
+const stripe = require("stripe")(
+  "sk_test_51MD6lqF708GC2Knr9a2uM6PSQCGfKJCyZjgBQWRUGTePc4HL6KFFM8dJQ8oZCtbDRekQwSXwb7x8PD6wkAA199VX000e99F065"
+);
 
 app.use(cors());
 app.use(express.json());
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+// const { default: Stripe } = require("stripe");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rdx4d.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
@@ -18,7 +24,7 @@ const client = new MongoClient(uri, {
 
 const verifyJwtToken = (req, res, next) => {
   const authorization = req.headers.authorization;
-  console.log(authorization);
+  // console.log(authorization);
   if (!authorization) {
     return res.status(401).send({ message: "UnAuthorized User" });
   }
@@ -28,6 +34,41 @@ const verifyJwtToken = (req, res, next) => {
       return res.status(403).send({ message: "Forbidden User Access" });
     req.decoded = decoded;
     next();
+  });
+};
+
+const mailSenderOptions = {
+  auth: {
+    api_key: process.env.MAIL_SENDER_KEY,
+  },
+};
+const emailClient = nodemailer.createTransport(sgTransport(mailSenderOptions));
+const sendAppointmentMail = (booking) => {
+  const { patientEmail, patientName, treatmentName, date, slot } = booking;
+  console.log("send mail", patientEmail);
+  console.log(process.env.MAIL_SENDER, "sender");
+  const email = {
+    from: process.env.MAIL_SENDER,
+    to: patientEmail,
+    subject: `Your Appointment for${treatmentName} is on ${date} at ${slot}`,
+    text: `Your Appointment for${treatmentName} is on ${date} at ${slot}`,
+    html: `<div>
+    <p>Dear ${patientName}</p>
+    <p>Your Appointment for${treatmentName} is Confirmed</p>
+    <p>Thank you for choosing Online Doctor. Your payment is successful.
+      Please find the attached receipt for your payment reference.</p>
+    <p>Looking forward to seeing you on ${date} at ${slot}.</p>
+    <h3>Our Address</h3>
+    <p>Mohammadia Housing Limited</p>
+    <p>Dhaka, Bangladesh</p>
+    <a href='http://localhost:3000/'>Unsubscribe</a>
+    </div>`,
+  };
+  emailClient.sendMail(email, function (err, res) {
+    if (err) {
+      console.log(err);
+    }
+    console.log(res, "mail success");
   });
 };
 
@@ -57,14 +98,23 @@ async function run() {
       const requesterAccount = await userCollection.findOne({
         currentEmail: requester,
       });
-      console.log(requesterAccount?.role, "requester account");
+      // console.log(requesterAccount?.role, "requester account");
       if (requesterAccount?.role === "admin") {
         next();
       } else {
         return res.status(403).send({ message: "Forbidden Access" });
       }
     };
-
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({ clientSecret: paymentIntent.client_secret });
+    });
     app.get("/appointments", async (req, res) => {
       const query = {};
       const appointment = appointmentCollection
@@ -99,6 +149,7 @@ async function run() {
       });
       res.send(allAppointments);
     });
+
     app.get("/user", verifyJwtToken, async (req, res) => {
       const query = {};
       const result = await userCollection.find(query).toArray();
@@ -155,6 +206,18 @@ async function run() {
         return res.status(403).send({ message: "Forbidden Access" });
       }
     });
+    app.get("/booking/:id", verifyJwtToken, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const booking = await bookingCollection.findOne(query);
+      res.send(booking);
+    });
+    // app.get("/booking/:id", verifyJwtToken, async (req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: ObjectId(id) };
+    //   const booking = await bookingCollection.findOne(query);
+    //   res.send(booking);
+    // });
     app.post("/booking", async (req, res) => {
       const booking = req.body;
       const query = {
@@ -167,15 +230,33 @@ async function run() {
         return res.send({ success: false, booking: existing });
       } else {
         const result = await bookingCollection.insertOne(booking);
+        console.log("sending email");
+        sendAppointmentMail(booking);
+        console.log("sending email success");
         res.send({ success: true, result });
       }
+    });
+    app.get("/doctors", verifyJwtToken, verifyAdmin, async (req, res) => {
+      const doctors = {};
+      const result = await doctorCollection.find(doctors).toArray();
+      res.send(result);
     });
     app.post("/doctors", verifyJwtToken, verifyAdmin, async (req, res) => {
       const doctor = req.body;
       const result = await doctorCollection.insertOne(doctor);
       res.send(result);
-      console.log(result);
     });
+    app.delete(
+      "/doctors/:email",
+      verifyJwtToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+        const query = { email: email };
+        const result = await doctorCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
   } finally {
   }
 }
